@@ -1,0 +1,109 @@
+version: "3.9"
+
+services:
+  # Laravel backend
+  backend:
+    build:
+      context: ./docker/php
+      dockerfile: Dockerfile
+    container_name: laravel-backend
+    working_dir: /var/www
+    volumes:
+      - ./backend:/var/www
+      - ./docker/php/myphp.ini:/usr/local/etc/php/conf.d/myphp.ini
+      - storage_framework:/var/www/storage/framework
+      - bootstrap_cache:/var/www/bootstrap/cache
+    networks:
+      - app-network
+    depends_on:
+      - db
+    environment:
+      - COMPOSER_ALLOW_SUPERUSER=1
+
+  # Nginx
+  web:
+    image: nginx:latest
+    container_name: nginx
+    ports:
+      - "8000:80"
+    volumes:
+      - ./backend:/var/www
+      - ./frontend/out:/var/www/frontend/forms
+      - ./docker/nginx:/etc/nginx/conf.d
+    networks:
+      - app-network
+    depends_on:
+      - backend
+      - frontend
+
+  # MySQL
+  db:
+    image: mysql:8.0
+    container_name: mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: laravel
+      MYSQL_USER: laravel
+      MYSQL_PASSWORD: secret
+    ports:
+      - "3306:3306"
+    volumes:
+      - dbdata:/var/lib/mysql
+    networks:
+      - app-network
+
+  # phpMyAdmin
+  phpmyadmin:
+    image: phpmyadmin/phpmyadmin
+    container_name: phpmyadmin
+    environment:
+      PMA_HOST: db
+      PMA_PORT: 3306
+    ports:
+      - "8080:80"
+    depends_on:
+      - db
+    networks:
+      - app-network
+
+  # Composer
+  composer:
+    image: composer:latest
+    container_name: composer
+    working_dir: /var/www
+    volumes:
+      - ./backend:/var/www
+    networks:
+      - app-network
+    command: tail -f /dev/null
+
+  # Next.js frontend
+  frontend:
+    image: node:20
+    container_name: nextjs-frontend
+    working_dir: /usr/src/app
+    volumes:
+      - ./frontend:/usr/src/app          # プロジェクトソース
+      - /usr/src/app/node_modules       # 匿名ボリュームで権限回避
+      - nextjs_cache:/usr/src/app/.next # .next キャッシュをコンテナ専用に
+    networks:
+      - app-network
+    ports:
+      - "3000:3000"                     # 開発サーバー用
+    environment:
+      - CHOKIDAR_USEPOLLING=true         # ← これを追加！
+      - WATCHPACK_POLLING=true           # ← 補助でこれも入れると安定する
+    # command: sh -c "tail -f /dev/null"  # コンテナ常駐
+    # command: sh -c "npm install && npm run build && npm run export && tail -f /dev/null"
+    command: sh -c "npm install && npm run dev"
+
+volumes:
+  dbdata:
+  nextjs_cache:
+  storage_framework:
+  bootstrap_cache:
+
+networks:
+  app-network:
+    driver: bridge
